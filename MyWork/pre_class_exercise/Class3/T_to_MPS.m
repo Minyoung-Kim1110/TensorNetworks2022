@@ -22,6 +22,6 @@ for it = (1:numel(sz)-1)
     szl = size(Q{it},2); % update the bond dimension
     R = reshape(R, [szl,sz(it+1:end)]);
 end
-Q{end} = R;
+Q{end} = permute(R, [1,3,2]);
 end
 
