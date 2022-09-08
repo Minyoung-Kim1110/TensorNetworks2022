@@ -14,6 +14,8 @@ for it = (2:n)
     tensor = contract(tensor, rank, rank-1, Q{it}, 3, 1);
 end
 shape = size(tensor);
-tensor = reshape(tensor, shape(2:end)); % Drop first dimension since it is dummy
+shape(numel(shape)-1) = shape(numel(shape));
+shape(numel(shape)) = shape(numel(shape)-1);
+tensor = reshape(tensor, shape(2:end-1)); % Drop first dimension, last dimension since it is dummy
 end
 
