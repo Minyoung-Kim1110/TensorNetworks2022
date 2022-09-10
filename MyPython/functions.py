@@ -109,7 +109,8 @@ def contract(A:np.array, B: np.array, contract_idx_A:List[int], contract_idx_B: 
     return np.tensordot(A, B, axes = (contract_idx_A, contract_idx_B))
 
 def check_equality_tensor(A: np.array, B : np.array, tol = 10 ** ( -15) ): 
-    """_summary_
+    """check equality of tensors A and B 
+        Return True if A == B upto tolerance(tol)
 
     Args:
         A (np.array): a tensor 
@@ -118,7 +119,7 @@ def check_equality_tensor(A: np.array, B : np.array, tol = 10 ** ( -15) ):
 
     Returns:
         (Boolean): Whether two tensors are equal or not 
-        
+
     Written by M.Kim (Sep.10 2022)
     """
     if A.shape != B.shape:
