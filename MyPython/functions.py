@@ -67,7 +67,9 @@ def MPS_to_tensor(MPS:List[np.array]):
         MPS (List[np.array]): matrix product states
 
     Returns:
-        A (np.array):a high rank tensor 
+        A (np.array):a high rank tensor
+
+    Written by M.Kim (Sep.10 2022)
     """
     A = MPS[0]
     for i in range(1, len(MPS)):
@@ -84,6 +86,8 @@ def entropy(s: np.array)->float:
 
     Returns:
         entropy (float): Shannon entropy with log_2
+    
+    Written by M.Kim (Sep.08 2022)
     """
     s = s[s>10**(-16)]
     s = s*s 
@@ -100,6 +104,7 @@ def contract(A:np.array, B: np.array, contract_idx_A:List[int], contract_idx_B: 
 
     Returns:
         tensor(np.array): contracted tensor 
+    Written by M.Kim (Sep.10 2022)
     """
     return np.tensordot(A, B, axes = (contract_idx_A, contract_idx_B))
 
@@ -113,6 +118,8 @@ def check_equality_tensor(A: np.array, B : np.array, tol = 10 ** ( -15) ):
 
     Returns:
         (Boolean): Whether two tensors are equal or not 
+        
+    Written by M.Kim (Sep.10 2022)
     """
     if A.shape != B.shape:
         return False 
