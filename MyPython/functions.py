@@ -30,11 +30,12 @@ def get_MPS_QR(tensor:np.array)->List[np.array]:
     MPS.append(np.transpose(R[:, np.newaxis], (0, 2, 1)))
     return MPS
 
-def get_MPS_SVD(tensor:np.array)->Tuple[List[np.array], List[float]]:
+def get_MPS_SVD(tensor:np.array, tol = 10**(-16))->Tuple[List[np.array], List[float]]:
     """Decompose a high rank tensor to the matrix product states(MPS) by SVD decomposition  
     
     Args:
         tensor (np.array): a high rank tensor
+        tol (float) : tolerance for floating point noise
 
     Returns:
         MPS, entropys (Tuple[List[np.array], List[float]]): 
@@ -51,12 +52,14 @@ def get_MPS_SVD(tensor:np.array)->Tuple[List[np.array], List[float]]:
     for i in range(len(tensor_dim)-1):
         A = A.reshape((szl*tensor_dim[i], np.prod(tensor_dim[i+1:])), order=order_type)
         U, S, Vh = lin.svd(A, full_matrices=False)
+        S_filtered = S>tol
+        U , S, Vh= U[:, S_filtered], S[S_filtered], Vh[S_filtered, :]
         entropys.append(entropy(S))
         U = np.transpose(U.reshape((szl, tensor_dim[i], -1), order=order_type), (0, 2, 1))
         MPS.append(U)
         (_, szl, _) = U.shape
         A = (np.diag(S)@Vh).reshape((tensor_dim[i+1:].insert(0, szl)), order=order_type)
-    MPS.append(np.transpose(A[:, np.newaxis], (0, 2, 1)))
+    MPS.append(A[:, np.newaxis, :])
     return (MPS, entropys)
 
 def MPS_to_tensor(MPS:List[np.array]):
@@ -88,7 +91,6 @@ def entropy(s: np.array)->float:
     
     Written by M.Kim (Sep.08 2022)
     """
-    s = s[s>10**(-16)] # delete noise 
     s = s*s 
     return - np.dot(s, np.log2(s))
 
@@ -143,7 +145,7 @@ if __name__ == '__main__':
         return check_equality_tensor(T, T_reconstructed)
 
     def check_integrity_SVD(T): 
-        (MPS, entropys )= get_MPS_SVD(T)
+        (MPS, entropys )= get_MPS_SVD(T, tol = 2**(-40))
         T_reconstructed = MPS_to_tensor(MPS)
         for entropy in entropys: 
             print(f"{entropy:.5f}")
