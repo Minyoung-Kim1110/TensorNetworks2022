@@ -15,7 +15,6 @@ def get_MPS_QR(tensor:np.array)->List[np.array]:
         MPS (List[np.array]): Matrix product state of a given high rank tensor 
     
     Written by M.Kim (Sep.08 2022)
-    
     """
     tensor_dim = list(tensor.shape)
     MPS = []
@@ -89,7 +88,7 @@ def entropy(s: np.array)->float:
     
     Written by M.Kim (Sep.08 2022)
     """
-    s = s[s>10**(-16)]
+    s = s[s>10**(-16)] # delete noise 
     s = s*s 
     return - np.dot(s, np.log2(s))
 
@@ -133,7 +132,7 @@ def check_equality_tensor(A: np.array, B : np.array, tol = 10 ** ( -15) ):
 
 if __name__ == '__main__':
     dim = [2,3,2,3,4]
-    T = (np.arange(np.prod(dim))+1).reshape(dim, order=order_type).astype(np.float64)
+    T = (np.arange(np.prod(dim))+1).reshape(dim, order=order_type).astype(np.float64) # using 64 bit float 
     T = T/lin.norm(T.flatten())
     print(T.shape)
 
