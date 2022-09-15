@@ -7,6 +7,7 @@ function Gs = non_intTB_truncation(t, Nkeep)
     U = cell(1, N); % left uniary 
     Ds = cell(1, N);
     U{1}=1;
+    tol = Nkeep * 100 * eps; % heuristic tolerance
     
     for itN = (2:N) 
         % rank-3 identity tensor for the current iteration
@@ -31,7 +32,7 @@ function Gs = non_intTB_truncation(t, Nkeep)
             energy_criteria = Es(Nkeep); % criteria = Nkeep th energy 
             % check degeneracy
             degeneracy = 1;
-            while abs(energy_criteria - Es(Nkeep+degeneracy))<eps
+            while abs(energy_criteria - Es(Nkeep+degeneracy))<tol
                 degeneracy = degeneracy+1;
             end
             Nkeep_revised = Nkeep+degeneracy-1 ; % update Nkeep 
