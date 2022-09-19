@@ -1,7 +1,7 @@
-function [M,S,dw] = canonForm_Ex (M,id,Nkeep,Skeep)
+function [M,S,dw] = canonForm (M,id,Nkeep,Skeep)
 % < Description >
 %
-% [M,S,dw] = canonForm_Ex (M,id,Nkeep,Skeep);
+% [M,S,dw] = canonForm (M,id,Nkeep,Skeep);
 %
 % Obtain the canonical forms of MPS, depending on the index id of the
 % target bond. The left part of the MPS, M{1}, ..., M{id}, is brought into
@@ -57,17 +57,18 @@ end
 
 dw = zeros(numel(M)-1,1); % discarded weights
 
-% % % TODO (start) % % %
-
 % % Bring the left part of MPS into the left-canonical form
 for it = (1:id-1)
+    % % % TODO (start) % % %
 
     % reshape M{it} and SVD
-
+    [M{it},S,Vd,dw(it)] = svdTr(M{it},3,[1 3],Nkeep,Skeep);
+    M{it} = permute(M{it},[1 3 2]);
 
     % contract S and Vd with M{it+1}
+    M{it+1} = contract(diag(S)*Vd,2,2,M{it+1},3,1);
     
-    
+    % % % TODO (end) % % %
 end
     
 % % Bring the right part into the right-canonical form
@@ -75,32 +76,31 @@ for it = (numel(M):-1:id+2)
     % % % TODO (start) % % %
     
     % reshape M{it} and SVD
-
+    [U,S,M{it},dw(it-1)] = svdTr(M{it},3,1,Nkeep,Skeep);
 
     % contract U and S with M{it-1}
-
+    M{it-1} = contract(M{it-1},3,2,U*diag(S),2,1,[1 3 2]);
     
+    % % % TODO (end) % % %
 end
-
 
 if id == 0 % purely right-canonical form
-    % no trucation in SVD
-
+    [U,S,M{1}] = svdTr(M{1},3,1,[],0); % no trucation
     % U is a single number which serves as the overall phase factor to the
     % total many-site state. So we can pass over U to M{1}.
-    
+    M{1} = contract(U,2,2,M{1},3,1);
+
 elseif id == numel(M) % purely left-canonical form
-    % no trucation in SVD
-
-    % V' is a single number which serves as the overall phase factor to the
-    % total many-site state. So we can pass over V' to M{end}.
-
+    [M{end},S,Vd] = svdTr(M{end},3,[1 3],[],0); % no trucation
+    % Vd is a single number which serves as the overall phase factor to the
+    % total many-site state. So we can pass over Vd to M{end}.
+    M{end} = contract(M{end},3,3,Vd,2,1,[1 3 2]);
+    
 else % bond-canonical form
-    % SVD with truncation
-
+    T = contract(M{id},3,2,M{id+1},3,1);
+    [M{id},S,M{id+1},dw(id)] = svdTr(T,4,[1 2],Nkeep,Skeep);
+    M{id} = permute(M{id},[1 3 2]);
 end
-
-% % % TODO (end) % % %
 
 catch e
     disp(getReport(e));
