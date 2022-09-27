@@ -1,17 +1,21 @@
-function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
+function [M,E1,Eiter,Sv] = DMRG_1ES_1site_Ex (M,M0,Hs,Nkeep,Nsweep,varargin)
 % < Description >
 %
-% [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
+% [M,E1,Eiter,Sv] = DMRG_GS_1site_Ex (M,M0,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
 %
 % Single-site density-matrix renormalization group (DMRG) calculation to
-% search for the ground state and its energy of a one-dimensional system,
-% whose Hamiltonian is given by the matrix product operator.
+% search for the first excited state and its energy of a one-dimensional
+% system, whose Hamiltonian is given by the matrix product operator.
 %
 % < Input >
 % M : [1 x N cell array] Matrix product state (MPS) as the initial guess of
 %       the variational search. Each M{n} is a rank-3 tensor acting on site
 %       n. Their legs are ordered as left-right-bottom(=physical). The
 %       length M, i.e., numel(Hs), defines the system length N.
+% M0 : [1 x N cell array] The ground state of the system, represented as an
+%       MPS (see the description of "M" for its data structure). This
+%       function updates "M" to be the lowest-energy state with the
+%       constraint that "M" is orthogonal to "M0".
 % Hs : [1 x N cell array] Matrix product operator (MPO) of the Hamiltonian.
 %       Each Hs{n} is a rank-4 tensor acting on site n. The order of legs
 %       of Hs{n} is bottom-top-left-right, where the bottom (top) leg
@@ -37,9 +41,10 @@ function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
 %
 % < Output >
 % M : [1 x N cell array] The result MPS which is obtained variationally to
-%       have the minimum expectation value of the Hamiltonian Hs. It is in
-%       a left-canonical form, since the last sweep is left-to-right.
-% E0 : [numeric] The energy of M.
+%       have the minimum expectation value of the Hamiltonian "Hs", with
+%       the orthogonality constraint. It is in a left-canonical form, since
+%       the last sweep is left-to-right.
+% E1 : [numeric] The energy of "M".
 % Eiter : [N x (2*Nsweep) numeric array] Each element Eiter(m,n) means the
 %       variational energy in the m-th iteration within the n-th sweep.
 %       Odd n is for right-to-left sweep and even n for left-to-right
@@ -53,7 +58,9 @@ function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
 %
 % Written by S.Lee (May 28,2019)
 % Updated by S.Lee (May 23,2020): Revised for SoSe2020.
-% Rewritten by S.Lee (Sep.23,2022) for the 2022 fall semester at SNU.
+% Rewritten by S.Lee (Sep.26,2022): Derived from a routine that finds both
+%       the ground and first excited states, for a pedagogical reason for
+%       the 2022 fall semester at SNU.
 
 
 tobj = tic2;
@@ -96,7 +103,7 @@ end
 % % %
 
 % show message
-disptime('Single-site DMRG: ground state search');
+disptime('Single-site DMRG: first excited state search');
 disptime(['# of sites = ',sprintf('%i',numel(Hs)), ...
     ', Nkeep = ',sprintf('%i',Nkeep),', # of sweeps = ',sprintf('%i',Nsweep),' x 2']);
 
@@ -105,7 +112,7 @@ M = canonForm(M,N,[],0);
 
 % ground-state energy for each iteration
 Eiter = zeros(N,2*Nsweep);
-% later, Eiter(end,end) will be taken as the final result E0
+% later, Eiter(end,end) will be taken as the final result E1
 
 Sv = cell(1,N+1); % collection of singular value vectors
 
@@ -118,27 +125,44 @@ Hlr = cell(1,N+2);
 Hlr{1} = 1; % to initialize "zipper" contraction
 Hlr{end} = 1; % to represent the Hamiltonian for the dummy space
 
-% Since M is in left-canonical form by now, we build Hlr{..} by contracting
-% left-to-right.
+% Overlap between the variational MPS ("M") and the ground state ("M0") for
+% the left/right parts of the chain. In terms of indexing, it follows the
+% same convention as for the "Hlr" above.
+Olr = cell(1,N+2);
+Olr{1} = 1; % to initialize "zipper" contraction
+Olr{end} = 1; % to represent the overlap for the dummy space
+
+% Since M is in left-canonical form by now, we build Hlr{..} and Olr{..} by
+% contracting left-to-right.
 for itN = (1:N)
-    Hlr{itN+1} = updateLeft(Hlr{itN},3,M{itN},Hs{itN},4,M{itN});
+    if itN == 1
+        Hlr{itN+1} = updateLeft([],[],M{itN},permute(Hs{itN},[1 2 4 3]),3,M{itN});
+    else
+        Hlr{itN+1} = updateLeft(Hlr{itN},3,M{itN},Hs{itN},4,M{itN});
+    end
+    Olr{itN+1} = updateLeft(Olr{itN},2,M{itN},[],[],M0{itN});
 end
 
 for itS = (1:Nsweep)
     % right -> left
     for itN = (N:-1:1)
         % % % % TODO (start) % % % %
-        % Use the subfunction eigs_1site_GS, put at the end of this file,
-        % to obtain the ground state via the Lanczos method
-        [M{itN},Eiter(N+1-itN,2*itS-1)] = eigs_1site_GS (Hlr{itN},Hs{itN},Hlr{itN+2},M{itN},nKrylov,tol);
-
+        % Use the subfunction eigs_1site_1ES, put at the end of this file,
+        % to obtain the lowest-energy state via the Lanczos method, with
+        % the constraint of being orthogonal to "Aorth".
+        
         % SVD, using Skeep = 0 not to decrease bond dimensions
         
         
         % update the next tensor
-        
+        if itN > 1
+            
+        else
+            % Sv{itN} should be 1, as the MPS norm; absorb U into M{itN}
+            
+        end
 
-        % update the Hamiltonian in effective basis
+        % update the Hamiltonian and the overlap in effective basis
         
 
         % % % % TODO (end) % % % %
@@ -146,18 +170,23 @@ for itS = (1:Nsweep)
     
     % display information of the sweep
     disptime(['Sweep #',sprintf('%i/%i',[2*itS-1,2*Nsweep]),' (right -> left) : Energy = ', ...
-        sprintf('%.7g',Eiter(N,2*itS-1))]);
+        sprintf('%.7g',Eiter(N,2*itS-1)),', Overlap = ',sprintf('%.7g',Oiter(N,2*itS-1))]);
     
     % left -> right
     for itN = (1:N)
         % % % % TODO (start) % % % %
-        [M{itN},Eiter(itN,2*itS)] = eigs_1site_GS (Hlr{itN},Hs{itN},Hlr{itN+2},M{itN},nKrylov,tol);
-        
-        % SVD, using Skeep = 0 not to decrease bond dimensions
         
 
+        % SVD, using Skeep = 0 not to decrease bond dimensions
+
+
         % update the next tensor
+        if itN < N
+
+        else
+            % Sv{itN+1} should be 1, as the MPS norm; absorb Vd into M{itN}
         
+        end
 
         % update the Hamiltonian in effective basis
         
@@ -167,19 +196,19 @@ for itS = (1:Nsweep)
 
     % display informaiton of the sweep
     disptime(['Sweep #',sprintf('%i/%i',[2*itS,2*Nsweep]),' (left -> right) : Energy = ', ...
-        sprintf('%.7g',Eiter(N,2*itS))]);
+        sprintf('%.7g',Eiter(N,2*itS)),', Overlap = ',sprintf('%.7g',Oiter(N,2*itS))]);
 end
 
-E0 = Eiter(N,2*itS); % take the last value
+E1 = Eiter(N,2*itS); % take the last value
     
 toc2(tobj,'-v');
 
 end
 
-function [Anew,Enew] = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
+function [Anew,Enew] = eigs_1site_1ES (Hleft,Hcen,Hright,Aold,Aorth,nKrylov,tol)
 % < Description >
 %
-% Anew = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
+% Anew = eigs_1site_GS (Hleft,Hcen,Hright,Aold,Aorth,nKrylov,tol)
 %
 % Update an MPS tensor acting on a single site, by solving the effective
 % Hamiltonian via the Lanczos method.
@@ -192,6 +221,8 @@ function [Anew,Enew] = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
 % Hright : [rank-3 tensor] Right part of the effective Hamiltonian. Its
 %       legs are ordered as bottom-top-left.
 % Aold : [rank-3 tensor] Current ket tensor.
+% Aorth : [rank-3 tensor] We will find "Anew" in the subspace orthogonal to
+%       the "Aorth".
 % nKrylov, tol : Options for the Lacnzos method. See the documentation for
 %       the parent function for details.
 %
@@ -204,29 +235,40 @@ function [Anew,Enew] = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
 
 % The collection of rank-3 tensors as Krylov basis; the 4th dimension is
 % for indexing different rank-3 tensors
-As = zeros([size(Aold,1),size(Aold,2),size(Aold,3),nKrylov]);
+As = zeros([size(Aold,1),size(Aold,2),size(Aold,3),nKrylov+1]); % one more for the 4th dimension, to store "Aorth".
+% As(:,:,:,1) is for Aorth, As(:,:,:,2) is for Aold, after orthonormalizing
+% them
 
-% Define the first Krylov vector as the input "Aold"
-As(:,:,:,1) = Aold/sqrt(abs(contract(conj(Aold),3,(1:3),Aold,3,(1:3))));
-% normalize; insert "abs" to avoid numerical noise
+% % % % TODO (start) % % % %
+% orthonormalize "Aorth" and "Aold"
+
+
 
 alphas = zeros(nKrylov,1); % main diagonal elements
 betas  = zeros(nKrylov-1,1); % +-1 diagonal elements
 cnt = 0; % counter for Krylov subspace dimension
 
 for itn = (1:nKrylov)
-    % % % % TODO (start) % % % %
-    
+    % "matrix-vector" multiplication
 
-    % % % % TODO (end) % % % %
+
+
+    if itn < nKrylov
+        % orthogonalize, to get the next Krylov vector
+        
+        if Anorm < tol % for numerical stability
+            break;
+        end
+    end
 end
+% % % % TODO (end) % % % %
 
 Hkrylov = diag(betas(1:cnt-1),-1);
 Hkrylov = Hkrylov + Hkrylov' + diag(alphas(1:cnt));
 
 [V,D] = eig(Hkrylov);
 [~,minid] = min(diag(D));
-Anew = contract(As(:,:,:,1:cnt),4,4,V(:,minid),2,1);
+Anew = contract(As(:,:,:,2:cnt+1),4,4,V(:,minid),2,1); % don't use As(:,:,:,1), since it's Aorth
 
 % compute the epectation value of the effective Hamiltonian with respect to "Anew"
 Amul = contract(Hleft,3,2,Anew,3,1);

@@ -1,7 +1,7 @@
-function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
+function [M,E0,Eiter,Sv] = DMRG_GS_1site (M,Hs,Nkeep,Nsweep,varargin)
 % < Description >
 %
-% [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
+% [M,E0,Eiter,Sv] = DMRG_GS_1site (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
 %
 % Single-site density-matrix renormalization group (DMRG) calculation to
 % search for the ground state and its energy of a one-dimensional system,
@@ -133,14 +133,20 @@ for itS = (1:Nsweep)
         [M{itN},Eiter(N+1-itN,2*itS-1)] = eigs_1site_GS (Hlr{itN},Hs{itN},Hlr{itN+2},M{itN},nKrylov,tol);
 
         % SVD, using Skeep = 0 not to decrease bond dimensions
-        
+        [U,Sv{itN},M{itN}] = svdTr(M{itN},3,1,Nkeep,0);
         
         % update the next tensor
-        
+        if itN > 1
+            M{itN-1} = contract(M{itN-1},3,2,U*diag(Sv{itN}),2,1,[1 3 2]);
+        else
+            % Sv{itN} should be 1, as the MPS norm; absorb U into M{itN}
+            M{itN} = contract(U,2,2,M{itN},3,1);
+        end
 
         % update the Hamiltonian in effective basis
-        
-
+        Hlr{itN+1} = updateLeft(Hlr{itN+2},3,permute(M{itN},[2 1 3]), ...
+            permute(Hs{itN},[1 2 4 3]),4,permute(M{itN},[2 1 3]));
+        % permute the left and right legs, to use updateLeft
         % % % % TODO (end) % % % %
     end
     
@@ -152,16 +158,21 @@ for itS = (1:Nsweep)
     for itN = (1:N)
         % % % % TODO (start) % % % %
         [M{itN},Eiter(itN,2*itS)] = eigs_1site_GS (Hlr{itN},Hs{itN},Hlr{itN+2},M{itN},nKrylov,tol);
-        
+
         % SVD, using Skeep = 0 not to decrease bond dimensions
-        
+        [M{itN},Sv{itN+1},Vd] = svdTr(M{itN},3,[1 3],Nkeep,0); 
+        M{itN} = permute(M{itN},[1 3 2]);
 
         % update the next tensor
-        
+        if itN < N
+            M{itN+1} = contract(diag(Sv{itN+1})*Vd,2,2,M{itN+1},3,1);
+        else
+            % Sv{itN+1} should be 1, as the MPS norm; absorb Vd into M{itN}
+            M{itN} = contract(M{itN},3,2,Vd,2,1,[1 3 2]);
+        end
 
         % update the Hamiltonian in effective basis
-        
-
+        Hlr{itN+1} = updateLeft(Hlr{itN},3,M{itN},Hs{itN},4,M{itN});
         % % % % TODO (end) % % % %
     end
 
@@ -216,8 +227,34 @@ cnt = 0; % counter for Krylov subspace dimension
 
 for itn = (1:nKrylov)
     % % % % TODO (start) % % % %
-    
+    % "matrix-vector" multiplication
+    Amul = contract(Hleft,3,2,As(:,:,:,itn),3,1);
+    Amul = contract(Amul,4,[2 4],Hcen,4,[3 2]);
+    Amul = contract(Amul,4,[2 4],Hright,3,[2 3],[1 3 2]);
 
+    alphas(itn) = real(contract(conj(As(:,:,:,itn)),3,(1:3),Amul,3,(1:3)));
+    % insert "real" to avoid numerical noise
+
+    cnt = cnt+1;
+
+    if itn < nKrylov
+        % orthogonalize, to get the next Krylov vector
+        for it2 = (1:2) % do twice to further reduce numerical noise
+            T = contract(conj(As(:,:,:,1:itn)),4,(1:3),Amul,3,(1:3));
+            T = contract(As(:,:,:,1:itn),4,4,T,2,1);
+            Amul = Amul - T;
+        end
+    
+        % norm
+        Anorm = sqrt(abs(contract(conj(Amul),3,(1:3),Amul,3,(1:3)))); % insert "abs" to avoid numerical noise
+        
+        if Anorm < tol % for numerical stability
+            break;
+        end
+    
+        As(:,:,:,itn+1) = Amul/Anorm; % normalize
+        betas(itn) = Anorm;
+    end
     % % % % TODO (end) % % % %
 end
 

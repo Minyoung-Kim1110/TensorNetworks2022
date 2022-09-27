@@ -1,11 +1,13 @@
-function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
+function [M,E0,Eiter,Sv] = DMRG_GS_2site_Ex (M,Hs,Nkeep,Nsweep,varargin)
 % < Description >
 %
-% [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
+% [M,E0,Eiter,Sv] = DMRG_GS_2site_Ex (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
 %
-% Single-site density-matrix renormalization group (DMRG) calculation to
+% Two-site density-matrix renormalization group (DMRG) calculation to
 % search for the ground state and its energy of a one-dimensional system,
-% whose Hamiltonian is given by the matrix product operator.
+% whose Hamiltonian is given by the matrix product operator. Here we
+% discard singluar values smaller than 1e-8 and their corresponding
+% singular vectors.
 %
 % < Input >
 % M : [1 x N cell array] Matrix product state (MPS) as the initial guess of
@@ -24,8 +26,8 @@ function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
 %
 % < Option >
 % 'Krylov', .. : [numeric] The maximum dimension of the Krylov subspace to
-%       be considered, within the Lanczos method used for updating each MPS
-%       tensor. That is, a tridiagonal matrix of size n-by-n (at maximal)
+%       be considered, within the Lanczos method used for updating MPS
+%       tensors. That is, a tridiagonal matrix of size n-by-n (at maximal)
 %       is diagonalized in each tensor update, with n set by 'Krylov',.. .
 %       (Default: 5)
 % 'tol', .. : [numeric] The tolerance for elements on the +-1 diagonals
@@ -48,13 +50,13 @@ function [M,E0,Eiter,Sv] = DMRG_GS_1site_Ex (M,Hs,Nkeep,Nsweep,varargin)
 %       (N+1-m) for right-to-left sweep.
 % Sv : [1 x (N+1) cell array] Sv{n} contains a vector of singular values on
 %       the bond between sites n-1 and n, for 1 < n < N. Sv{1} and Sv{end}
-%       are the norms of the MPS, sitting on the left- and rightmost legs
-%       (that are dummy), respectively.
+%       are empty (= []), since they are for the dummy legs and the
+%       orthogonality center in the two-site update algorithm does not move
+%       to the left- and rightmost legs.
 %
 % Written by S.Lee (May 28,2019)
 % Updated by S.Lee (May 23,2020): Revised for SoSe2020.
 % Rewritten by S.Lee (Sep.23,2022) for the 2022 fall semester at SNU.
-
 
 tobj = tic2;
 
@@ -96,7 +98,7 @@ end
 % % %
 
 % show message
-disptime('Single-site DMRG: ground state search');
+disptime('Two-site DMRG: ground state search');
 disptime(['# of sites = ',sprintf('%i',numel(Hs)), ...
     ', Nkeep = ',sprintf('%i',Nkeep),', # of sweeps = ',sprintf('%i',Nsweep),' x 2']);
 
@@ -104,7 +106,7 @@ disptime(['# of sites = ',sprintf('%i',numel(Hs)), ...
 M = canonForm(M,N,[],0);
 
 % ground-state energy for each iteration
-Eiter = zeros(N,2*Nsweep);
+Eiter = zeros(N-1,2*Nsweep);
 % later, Eiter(end,end) will be taken as the final result E0
 
 Sv = cell(1,N+1); % collection of singular value vectors
@@ -126,72 +128,71 @@ end
 
 for itS = (1:Nsweep)
     % right -> left
-    for itN = (N:-1:1)
+    for itN = (N-1:-1:1)
         % % % % TODO (start) % % % %
-        % Use the subfunction eigs_1site_GS, put at the end of this file,
+        % Use the subfunction eigs_2site_GS, put at the end of this file,
         % to obtain the ground state via the Lanczos method
-        [M{itN},Eiter(N+1-itN,2*itS-1)] = eigs_1site_GS (Hlr{itN},Hs{itN},Hlr{itN+2},M{itN},nKrylov,tol);
+        
 
-        % SVD, using Skeep = 0 not to decrease bond dimensions
-        
-        
+        % SVD; now we can safely truncate small singular values;
+
+
         % update the next tensor
-        
 
         % update the Hamiltonian in effective basis
-        
 
+        % permute the left and right legs, to use updateLeft
         % % % % TODO (end) % % % %
     end
     
     % display information of the sweep
     disptime(['Sweep #',sprintf('%i/%i',[2*itS-1,2*Nsweep]),' (right -> left) : Energy = ', ...
-        sprintf('%.7g',Eiter(N,2*itS-1))]);
+        sprintf('%.7g',Eiter(N-1,2*itS-1))]);
     
     % left -> right
-    for itN = (1:N)
+    for itN = (1:N-1)
         % % % % TODO (start) % % % %
-        [M{itN},Eiter(itN,2*itS)] = eigs_1site_GS (Hlr{itN},Hs{itN},Hlr{itN+2},M{itN},nKrylov,tol);
-        
-        % SVD, using Skeep = 0 not to decrease bond dimensions
-        
+
+
+        % SVD; now we can safely truncate small singular values;
+
 
         % update the next tensor
-        
 
         % update the Hamiltonian in effective basis
-        
 
         % % % % TODO (end) % % % %
     end
 
     % display informaiton of the sweep
     disptime(['Sweep #',sprintf('%i/%i',[2*itS,2*Nsweep]),' (left -> right) : Energy = ', ...
-        sprintf('%.7g',Eiter(N,2*itS))]);
+        sprintf('%.7g',Eiter(N-1,2*itS))]);
 end
 
-E0 = Eiter(N,2*itS); % take the last value
+E0 = Eiter(N-1,2*itS); % take the last value
     
 toc2(tobj,'-v');
 
 end
 
-function [Anew,Enew] = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
+function [Anew,Enew] = eigs_2site_GS (Hleft,Hcen1,Hcen2,Hright,Aold,nKrylov,tol)
 % < Description >
 %
-% Anew = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
+% Anew = eigs_1site_GS (Hleft,Hcen1,Hcen2,Hright,Aold,nKrylov,tol)
 %
-% Update an MPS tensor acting on a single site, by solving the effective
-% Hamiltonian via the Lanczos method.
+% Update an MPS tensor acting on two neighboring sites, by solving the
+% effective Hamiltonian via the Lanczos method.
 %
 % < Input >
 % Hleft : [rank-3 tensor] Left part of the effective Hamiltonian. Its legs
 %       are ordered as bottom-top-right.
-% Hcen : [rank-4 tensor] Center part of the effective Hamiltonian. It is
-%       indeed an MPO tensor for the current site.
+% Hcen1, Hcen2 : [rank-4 tensor] Center, local parts of the effective
+%       Hamiltonian. They are MPO tensors for the current two sites.
 % Hright : [rank-3 tensor] Right part of the effective Hamiltonian. Its
 %       legs are ordered as bottom-top-left.
-% Aold : [rank-3 tensor] Current ket tensor.
+% Aold : [rank-4 tensor] Product of two rank-3 ket tensors. Its legs are
+%       ordered as (left bond)-(right bond)-(left physical)-(right
+%       physical).
 % nKrylov, tol : Options for the Lacnzos method. See the documentation for
 %       the parent function for details.
 %
@@ -202,36 +203,23 @@ function [Anew,Enew] = eigs_1site_GS (Hleft,Hcen,Hright,Aold,nKrylov,tol)
 % Enew : [numeric] Expectation value of the effective Hamiltonian with
 %       respect to "Anew".
 
-% The collection of rank-3 tensors as Krylov basis; the 4th dimension is
-% for indexing different rank-3 tensors
-As = zeros([size(Aold,1),size(Aold,2),size(Aold,3),nKrylov]);
+% % % % TODO (start) % % % %
+
+% The collection of rank-4 tensors as Krylov basis; the 5th dimension is
+% for indexing different rank-4 tensors
+
 
 % Define the first Krylov vector as the input "Aold"
-As(:,:,:,1) = Aold/sqrt(abs(contract(conj(Aold),3,(1:3),Aold,3,(1:3))));
-% normalize; insert "abs" to avoid numerical noise
 
-alphas = zeros(nKrylov,1); % main diagonal elements
-betas  = zeros(nKrylov-1,1); % +-1 diagonal elements
-cnt = 0; % counter for Krylov subspace dimension
+
 
 for itn = (1:nKrylov)
-    % % % % TODO (start) % % % %
-    
+    % "matrix-vector" multiplication
 
-    % % % % TODO (end) % % % %
+    % insert "real" to avoid numerical noise
 end
 
-Hkrylov = diag(betas(1:cnt-1),-1);
-Hkrylov = Hkrylov + Hkrylov' + diag(alphas(1:cnt));
 
-[V,D] = eig(Hkrylov);
-[~,minid] = min(diag(D));
-Anew = contract(As(:,:,:,1:cnt),4,4,V(:,minid),2,1);
-
-% compute the epectation value of the effective Hamiltonian with respect to "Anew"
-Amul = contract(Hleft,3,2,Anew,3,1);
-Amul = contract(Amul,4,[2 4],Hcen,4,[3 2]);
-Amul = contract(Amul,4,[2 4],Hright,3,[2 3],[1 3 2]);
-Enew = real(contract(conj(Anew),3,(1:3),Amul,3,(1:3)));
+% % % % TODO (end) % % % %
 
 end
