@@ -1,7 +1,7 @@
-function [M,E0,Eiter,Sv] = DMRG_GS_2site_Ex (M,Hs,Nkeep,Nsweep,varargin)
+function [M,E0,Eiter,Sv] = DMRG_GS_2site (M,Hs,Nkeep,Nsweep,varargin)
 % < Description >
 %
-% [M,E0,Eiter,Sv] = DMRG_GS_2site_Ex (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
+% [M,E0,Eiter,Sv] = DMRG_GS_2site (M,Hs,Nkeep,Nsweep [,'Krylov',nKrylov] [,'tol',tol])
 %
 % Two-site density-matrix renormalization group (DMRG) calculation to
 % search for the ground state and its energy of a one-dimensional system,
@@ -133,15 +133,19 @@ for itS = (1:Nsweep)
         % % % % TODO (start) % % % %
         % Use the subfunction eigs_2site_GS, put at the end of this file,
         % to obtain the ground state via the Lanczos method
-        
+        Aold = contract(M{itN},3,2,M{itN+1},3,1,[1 3 2 4]);
+        [Anew,Eiter(N-itN,2*itS-1)] = eigs_2site_GS (Hlr{itN},Hs{itN},Hs{itN+1},Hlr{itN+3},Aold,nKrylov,tol);
 
         % SVD; now we can safely truncate small singular values;
-
+        [M{itN},Sv{itN+1},M{itN+1}] = svdTr(Anew,4,[1 3],Nkeep,1e-8);
+        M{itN} = permute(M{itN},[1 3 2]);
 
         % update the next tensor
+        M{itN} = contract(M{itN},3,2,diag(Sv{itN+1}),2,1,[1 3 2]);
 
         % update the Hamiltonian in effective basis
-
+        Hlr{itN+2} = updateLeft(Hlr{itN+3},3,permute(M{itN+1},[2 1 3]), ...
+            permute(Hs{itN+1},[1 2 4 3]),4,permute(M{itN+1},[2 1 3]));
         % permute the left and right legs, to use updateLeft
         % % % % TODO (end) % % % %
     end
@@ -153,15 +157,18 @@ for itS = (1:Nsweep)
     % left -> right
     for itN = (1:N-1)
         % % % % TODO (start) % % % %
-
+        Aold = contract(M{itN},3,2,M{itN+1},3,1,[1 3 2 4]);
+        [Anew,Eiter(itN,2*itS)] = eigs_2site_GS (Hlr{itN},Hs{itN},Hs{itN+1},Hlr{itN+3},Aold,nKrylov,tol);
 
         % SVD; now we can safely truncate small singular values;
-
+        [M{itN},Sv{itN+1},M{itN+1}] = svdTr(Anew,4,[1 3],Nkeep,1e-8);
+        M{itN} = permute(M{itN},[1 3 2]);
 
         % update the next tensor
+        M{itN+1} = contract(diag(Sv{itN+1}),2,2,M{itN+1},3,1);
 
         % update the Hamiltonian in effective basis
-
+        Hlr{itN+1} = updateLeft(Hlr{itN},3,M{itN},Hs{itN},4,M{itN});
         % % % % TODO (end) % % % %
     end
 
@@ -179,7 +186,7 @@ end
 function [Anew,Enew] = eigs_2site_GS (Hleft,Hcen1,Hcen2,Hright,Aold,nKrylov,tol)
 % < Description >
 %
-% Anew = eigs_2site_GS (Hleft,Hcen1,Hcen2,Hright,Aold,nKrylov,tol)
+% Anew = eigs_1site_GS (Hleft,Hcen1,Hcen2,Hright,Aold,nKrylov,tol)
 %
 % Update an MPS tensor acting on two neighboring sites, by solving the
 % effective Hamiltonian via the Lanczos method.
@@ -208,19 +215,61 @@ function [Anew,Enew] = eigs_2site_GS (Hleft,Hcen1,Hcen2,Hright,Aold,nKrylov,tol)
 
 % The collection of rank-4 tensors as Krylov basis; the 5th dimension is
 % for indexing different rank-4 tensors
-
+As = zeros([size(Aold,1),size(Aold,2),size(Aold,3),size(Aold,4),nKrylov]);
 
 % Define the first Krylov vector as the input "Aold"
+As(:,:,:,:,1) = Aold/sqrt(abs(contract(conj(Aold),4,(1:4),Aold,4,(1:4))));
+% normalize; insert "abs" to avoid numerical noise
 
-
+alphas = zeros(nKrylov,1); % main diagonal elements
+betas  = zeros(nKrylov-1,1); % +-1 diagonal elements
+cnt = 0; % counter for Krylov subspace dimension
 
 for itn = (1:nKrylov)
     % "matrix-vector" multiplication
+    Amul = contract(Hleft,3,2,As(:,:,:,:,itn),4,1);
+    Amul = contract(Amul,5,[2 4],Hcen1,4,[3 2]);
+    Amul = contract(Amul,5,[3 5],Hcen2,4,[2 3]);
+    Amul = contract(Amul,5,[2 5],Hright,3,[2 3],[1 4 2 3]);
 
+    alphas(itn) = real(contract(conj(As(:,:,:,:,itn)),4,(1:4),Amul,4,(1:4)));
     % insert "real" to avoid numerical noise
+
+    cnt = cnt+1;
+
+    if itn < nKrylov
+        % orthogonalize, to get the next Krylov vector
+        for it2 = (1:2) % do twice to further reduce numerical noise
+            T = contract(conj(As(:,:,:,:,1:itn)),5,(1:4),Amul,4,(1:4));
+            T = contract(As(:,:,:,:,1:itn),5,5,T,2,1);
+            Amul = Amul - T;
+        end
+    
+        % norm
+        Anorm = sqrt(abs(contract(conj(Amul),4,(1:4),Amul,4,(1:4)))); % insert "abs" to avoid numerical noise
+        
+        if Anorm < tol % for numerical stability
+            break;
+        end
+    
+        As(:,:,:,:,itn+1) = Amul/Anorm; % normalize
+        betas(itn) = Anorm;
+    end
 end
 
+Hkrylov = diag(betas(1:cnt-1),-1);
+Hkrylov = Hkrylov + Hkrylov' + diag(alphas(1:cnt));
 
+[V,D] = eig(Hkrylov);
+[~,minid] = min(diag(D));
+Anew = contract(As(:,:,:,:,1:cnt),5,5,V(:,minid),2,1);
+
+% compute the epectation value of the effective Hamiltonian with respect to "Anew"
+Amul = contract(Hleft,3,2,Anew,4,1);
+Amul = contract(Amul,5,[2 4],Hcen1,4,[3 2]);
+Amul = contract(Amul,5,[3 5],Hcen2,4,[2 3]);
+Amul = contract(Amul,5,[2 5],Hright,3,[2 3],[1 4 2 3]);
+Enew = real(contract(conj(Anew),4,(1:4),Amul,4,(1:4)));
 % % % % TODO (end) % % % %
 
 end
