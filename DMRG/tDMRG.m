@@ -1,7 +1,7 @@
-function [ts,M,Ovals,EE,dw] = tDMRG_Ex (M,Hs,O,Nkeep,dt,tmax)
+function [ts,M,Ovals,EE,dw] = tDMRG (M,Hs,O,Nkeep,dt,tmax)
 % < Description >
 %
-% [ts,M,Ovals,EE,dw] = tDMRG_Ex (M,Hs,O,Nkeep,dt,tmax)
+% [ts,M,Ovals,EE,dw] = tDMRG (M,Hs,O,Nkeep,dt,tmax)
 %
 % The time-dependent DMRG (tDMRG) method that simulates real-time evolution
 % of matrix product state (MPS), for an one-dimensional system whose
@@ -137,11 +137,11 @@ for it1 = (1:3*Nstep)
     
     % % % % TODO (start) % % % %
     % call local function tDMRG_1sweep which is written below in this file.
-    
+    [M,EE(it1,:),dw(it1,:)] = tDMRG_1sweep(M,expHtmp,Nkeep,mod(it1,2));
     
     if mod(it1,3) == 0
         % evaluate local expectation values
-        
+        Ovals(it1/3,:) = tDMRG_expVal(M,O,mod(it1,2));
     end
     % % % % TODO (end) % % % %
         
@@ -186,14 +186,44 @@ Skeep = 1e-8;
 % % % % TODO (start) % % % %
 if isright % left -> right
     for it = (1:N-1)
-        
+        % contract M{it} and M{it+1} with expH{it}
+        T = contract(M{it},3,2,M{it+1},3,1,[1 2 4 3]);
+        if ~isempty(expH{it})
+            T = contract(expH{it},4,[3 4],T,4,[2 3],[3 1 2 4]);
+        end
+        % SVD via svdTr
+        [M{it},S,V,dw(it)] = svdTr(T,4,[1 2],Nkeep,Skeep);
+        M{it} = permute(M{it},[1 3 2]);
+        % normalize the singular values, to normalize the norm of MPS
+        S = S/norm(S);
+        % compiute entanglement entropy of base 2. Be aware of zero
+        % singular values!
+        Spart = -(S.^2).*log(S.^2)/log(2);
+        EE(it) = sum(Spart(~isnan(Spart)));
+        % update M{it+1}
+        M{it+1} = contract(diag(S),2,2,V,3,1,[1 3 2]);
     end
-    
+    M{end} = M{end}/norm(M{end}(:)); % to normalize the norm of MPS
 else % right -> left
     for it = (N-1:-1:1)
-        
+        % contract M{it} and M{it+1} with expH{it}
+        T = contract(M{it},3,2,M{it+1},3,1,[1 2 4 3]);
+        if ~isempty(expH{it})
+            T = contract(expH{it},4,[3 4],T,4,[2 3],[3 1 2 4]);
+        end
+        % SVD via svdTr
+        [U,S,M{it+1},dw(it)] = svdTr(T,4,[1 2],Nkeep,Skeep);
+        M{it+1} = permute(M{it+1},[1 3 2]);
+        % normalize the singular values, to normalize the norm of MPS
+        S = S/norm(S);
+        % compiute entanglement entropy of base 2. Be aware of zero
+        % singular values!
+        Spart = -(S.^2).*log(S.^2)/log(2);
+        EE(it) = sum(Spart(~isnan(Spart)));
+        % update M{it}
+        M{it} = contract(U,3,3,diag(S),2,1,[1 3 2]);
     end
-    
+    M{1} = M{1}/norm(M{1}(:)); % to normalize the norm of MPS
 end
 % % % % TODO (end) % % % %
 
