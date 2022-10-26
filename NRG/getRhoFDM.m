@@ -1,4 +1,4 @@
-function Inrg = getRhoFDM_Ex (Inrg,T)
+function Inrg = getRhoFDM (Inrg,T)
 % < Description >
 %
 % Inrg = getRhoFDM_Ex (Inrg,T)
@@ -49,12 +49,14 @@ Ztot = zeros(1,N); % sum of Boltzmann weights
 % % % % TODO (start) % % % %
 % the shift of energy in each shell measured from the lowest-energy of the
 % last iteration
+E0r = [Inrg.EScale(2:end).*Inrg.E0(2:end),0];
+E0r = fliplr(cumsum(fliplr(E0r)));
 
 % obtain the Boltzamann weights
 for itN = (1:N)
     % Obtain the column vector RD{itN} whose elements are the Boltzmann
     % weights
-    RD{itN} = 
+    RD{itN} = exp(-(Inrg.ED{itN}*Inrg.EScale(itN)-E0r(itN))/T)*prod(locdim(itN+1:end));
     Ztot(itN) = sum(RD{itN});
 end
 
@@ -69,8 +71,11 @@ end
 % update the FDM in the kept basis
 for itN = (N:-1:2)
     % Construct RK{itN-1} as the sum of RD{itN} and RK{itN}, with the local
-    % Hilbert space for the site s(itN-1). 
-
+    % Hilbert space for the site s(itN-1).
+    AD2 = permute(Inrg.AD{itN},[2 1 3]);
+    AK2 = permute(Inrg.AK{itN},[2 1 3]);
+    RK{itN-1} = updateLeft(diag(RD{itN}),2,AD2,[],[],AD2) ...
+        + updateLeft(RK{itN},2,AK2,[],[],AK2);
     % NOTE: AK and AD are in left-canonical form, not right-canonical.
 
 end
