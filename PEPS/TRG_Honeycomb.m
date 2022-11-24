@@ -1,8 +1,8 @@
-function [Nsq,varargout] = TRG_Honeycomb_Ex (A,B,rgstep,Nkeep,varargin)
+function [Nsq,varargout] = TRG_Honeycomb (A,B,rgstep,Nkeep,varargin)
 % < Description >
 %
-% Nsq         = TRG_Honeycomb_Ex (A,B,rgstep,Nkeep)
-% [Nsq,OOval] = TRG_Honeycomb_Ex (A,B,rgstep,Nkeep,OA,OB)
+% Nsq         = TRG_Honeycomb (A,B,rgstep,Nkeep)
+% [Nsq,OOval] = TRG_Honeycomb (A,B,rgstep,Nkeep,OA,OB)
 %
 % Compute the squared norm (e.g., < \Psi | \Psi >) per site, of a projected
 % entangled-pair state (PEPS) on an exponentially large honeycomb lattice
@@ -85,9 +85,23 @@ gB = reshape(gB,prod(dimB,1));
 if isOp
     % % % % TODO (start) % % % %
 
-    % obtain "impurity" tensors that are made of rank-4 ket/bra 
-    % tensors and local operators
+    % permute legs to fuse bond legs
+    ids = 1+[(1:z);z+(1:z)]; % leg permutation
+    gOA = contract(A,z+1,z+1,OA,3,2,[z+2 (1:z+1)]); % put the 3rd leg of operator to the first
+    gOA = contract(gOA,z+2,z+2,conj(A),z+1,z+1,[1;ids(:)]);
+    gOB = contract(B,z+1,z+1,OB,3,2,[z+2 (1:z+1)]); % put the 3rd leg of operator to the first
+    gOB = contract(gOB,z+2,z+2,conj(B),z+1,z+1,[1;ids(:)]);
     
+    % fuse bond legs by reshaping
+    dimA = size(gOA); dimB = size(gOB);
+    dimA2 = ones(2,z); dimB2 = ones(2,z);
+    dimA2(1:(numel(dimA)-1)) = dimA(2:end);
+    dimB2(1:(numel(dimB)-1)) = dimB(2:end);
+    dimA2 = prod(dimA2,1); dimA2(1) = dimA2(1)*dimA(1);
+    dimB2 = prod(dimB2,1); dimB2(1) = dimB2(1)*dimB(1);
+    
+    gOA = reshape(gOA,dimA2);
+    gOB = reshape(gOB,dimB2);
 
     % % % % TODO (end) % % % %
     
@@ -113,22 +127,39 @@ for it1 = (1:rgstep)
     
     % % % % TODO (start) % % % %
     % contraction of gA and gB, along three different directions
-    
+    T = cell(1,3);
+    for it2 = (1:3)
+        T{it2} = contract(gA,3,it2,gB,3,it2);
+        if it2 == 2
+            T{it2} = permute(T{it2},[2 1 4 3]); % legs in CC order
+        end
+    end
 
     % SVD the contractions of gA and gB. And take the square root of
     % singular values, and contract the square root with the isometries.
-    
+    U = cell(1,3);
+    V = cell(1,3);
+    for it2 = (1:3)
+        [Utmp,Stmp,Vtmp] = svdTr(T{it2},4,[1 4],Nkeep,[]);
+        U{it2} = contract(Utmp,3,3,diag(sqrt(Stmp)),2,1,[1 3 2]); % CC order
+        V{it2} = contract(Vtmp,3,1,diag(sqrt(Stmp)),2,2,[2 3 1]); % CC order
+    end
 
     % contract the tensors around a plaquette to make the coarse-grained uniform tensor
-    
-
+    gA = contPlaq(U{1},U{2},U{3});
+    gB = contPlaq(V{1},V{2},V{3});
     % after each RG step, the whole lattice rotated clockwise by 90 degree
     
     if isOp
         % when local operators to be measured are given, coarse-grain
         % "impurity" tensors also
+        Ttmp = contract(Timp{1},3,1,Timp{2},3,1);
+        [Utmp,Stmp,Vtmp] = svdTr(Ttmp,4,[1 4],Nkeep,[]);
+        Uimp = contract(Utmp,3,3,diag(sqrt(Stmp)),2,1,[1 3 2]); % CC order
+        Vimp = contract(Vtmp,3,1,diag(sqrt(Stmp)),2,2,[2 3 1]); % CC order
         
-
+        Timp{1} = contPlaq(Uimp,U{2},U{3});
+        Timp{2} = contPlaq(Vimp,V{2},V{3});
     end
     % % % % TODO (end) % % % %
     
@@ -137,14 +168,23 @@ end
 
 % % % % TODO (start) % % % %
 % now we have six tensors; contract exactly
-
-
+T1 = contract(gA,3,1,gB,3,1); % contract via the 1st legs, due to PBC
+T2 = contract(gA,3,2,gB,3,2); % contract via the 2nd legs, due to PBC
+T3 = contract(gA,3,3,gB,3,3); % contract via the 3rd legs, due to PBC
+res = contract(T1,4,[2 4],T2,4,[4 2]);
+res = contract(res,4,(1:4),T3,4,[4 2 3 1]);
+Nsq = Nsq*exp(log(res)/(6*(3^rgstep)));
 
 if isOp
     % perform the contraction of six tensors, two of which are replaced
     % with Timp{1} and Timp{2}
-    
-    varargout{1} = 
+    T1 = contract(gA,3,1,gB,3,1); % contract via the 1st legs, due to PBC
+    T2 = contract(Timp{1},3,2,gB,3,2); % contract via the 1st legs, due to PBC
+    T3 = contract(gA,3,3,Timp{2},3,3); % contract via the 1st legs, due to PBC
+    res2 = contract(T1,4,[2 4],T2,4,[4 2]);
+    res2 = contract(res2,4,(1:4),T3,4,[4 2 3 1]);
+
+    varargout{1} = res2/res;
 end
 % % % % TODO (end) % % % %
 

@@ -1,7 +1,7 @@
-function [Lambda,GA,GB,Es] = SimpleUp_Honeycomb_Ex (Lambda,GA,GB,H,Nkeep,betas)
+function [Lambda,GA,GB,Es] = SimpleUp_Honeycomb (Lambda,GA,GB,H,Nkeep,betas)
 % < Description >
 %
-% [Lambda,GA,GB,Es] = SimpleUp_Honeycomb_Ex (Lambda,GA,GB,H,Nkeep,betas)
+% [Lambda,GA,GB,Es] = SimpleUp_Honeycomb (Lambda,GA,GB,H,Nkeep,betas)
 %
 % Find the ground state, as a projected entangled-pair state (PEPS), of a
 % system on an infinite honeycomb lattice whose Hamiltonian consists of 
@@ -105,17 +105,62 @@ for it1 = (1:numel(betas))
         % % % % TODO (start) % % % %
 
         % contract Lambda's and Gamma's
+        TA = GA; TB = GB;
+        for it3 = (1:z)
+            if it3 ~= it2 % Lambda{it2} will be contracted later
+                TA = contract(TA,z+1,it3,diag(Lambda{it3}),2,2,[(1:it3-1),z+1,(it3:z)]);
+                TB = contract(TB,z+1,it3,diag(Lambda{it3}),2,1,[(1:it3-1),z+1,(it3:z)]);
+            end
+        end
+
+        % % Bond projection
+        % decompose tensors TA and TB (via SVD) so that their bond legs (to
+        % be contracted with Lambda{it2}) and the physical legs are
+        % associated with the decomposed parts of TA and TB, while the
+        % other bond legs are associated with the other decomposed parts.
+        % Note: Should be no truncation here!
+        [UA,SA,VA] = svdTr(TA,z+1,[(1:it2-1),(it2+1:z)],[],[]);
+        [UB,SB,VB] = svdTr(TB,z+1,[(1:it2-1),(it2+1:z)],[],[]);
         
+        % combine singular values and isometries having physical legs
+        T = contract(diag(SA),2,2,VA,3,1);
+        T = contract(T,3,2,diag(Lambda{it2}),2,2);
+        T = contract(T,3,3,VB,3,2);
+        T = contract(T,4,3,diag(SB),2,2,[1 4 2 3]);
+        % leg order: 1 (virtual bond to UA), 2 (virtual bond to UB), 3
+        % (physical bond of GA), 4 (physical bond of GB)
 
-        % Bond projection: should be no truncation here!
+        % imaginary time Trotter step
+        T = contract(T,4,[3 4],expH,4,[3 4]);
+
+        % decompose the projected bond tensor
+        [U,S,V] = svdTr(T,4,[1 3],Nkeep,[]);
+        Lambda{it2} = S/norm(S(:));
+        % rearrange leg order: (leg to be contracted to UA/UB)-(it2-th
+        % leg)-(physical bond)
+        U = permute(U,[1 3 2]);
+        V = permute(V,[2 1 3]);
+
+        % normalize T
+        T = T/norm(S(:)); 
         
-
-        % imaginary time Trotter step & SVD
-
+        % estimate energy
+        HT = contract(T,4,[3 4],H,4,[2 4]);
+        Es(it1,it2) = contract(conj(T),4,(1:4),HT,4,(1:4));
+        
+        % bring the "bond-projected" tensors back to the Gamma tensors
+        GA = contract(UA,z,z,U,3,1,[(1:it2-1) z (it2:z-1) (z+1)]);
+        GB = contract(UB,z,z,V,3,1,[(1:it2-1) z (it2:z-1) (z+1)]);
+        
         % divide the singluar values (that are associated with the other
         % bonds than Lambda{it2})
-        
-        
+        for it3 = (1:z)
+            if it3 ~= it2 % Lambda{it2} is factored out already
+                GA = contract(GA,z+1,it3,diag(1./Lambda{it3}),2,2,[(1:it3-1),z+1,(it3:z)]);
+                GB = contract(GB,z+1,it3,diag(1./Lambda{it3}),2,1,[(1:it3-1),z+1,(it3:z)]);
+            end
+        end
+
         % % % % TODO (end) % % % %
     end
     
